@@ -16,7 +16,7 @@ button{min-height:44px;cursor:pointer;font-weight:600}button:hover{background:#e
 @media(max-width:600px){form{grid-template-columns:1fr}header a{margin-left:0}}
 @page{size:A4;margin:16mm}
 @media print{body{background:white}main{max-width:none;padding:0}form,button,.toolbar,#empty,#status,header a,article:not(.print){display:none!important}article{border:0;padding:0}.mark{background:white;color:var(--ink);border:1px solid currentColor}}
-pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit}#report{margin:20px 0}.panel p{max-width:65ch}
+table{border-collapse:collapse;width:100%;margin-top:12px;overflow-wrap:anywhere}th,td{text-align:left;border-bottom:1px solid var(--line);padding:8px 4px}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit}#report{margin:20px 0}.panel p{max-width:65ch}
 </style><main><header><h1>Validador Shopify</h1></header>
 <div class="panel"><h2>Revisar catálogo</h2><p>Elegí un CSV de productos simples con las columnas handle, titulo y precio. Usá coma entre columnas y punto decimal en el precio.</p>
 <label>Archivo CSV<input type="file" id="file" accept=".csv,text/csv"></label><p><a href="ejemplo.csv" download>Descargar plantilla de ejemplo</a></p>
@@ -72,7 +72,7 @@ function convert(text){
     seen.add(key);out.push([handle,title,price]);
   }
   if(errors.length)throw Error(errors.join('\n'));
-  return {count:rows.length,csv:out.map(row=>row.map(value=>'"'+value.replaceAll('"','""')+'"').join(',')).join('\r\n')+'\r\n'};
+  return {count:rows.length,preview:out.slice(1,11),csv:out.map(row=>row.map(value=>'"'+value.replaceAll('"','""')+'"').join(',')).join('\r\n')+'\r\n'};
 }
 const input=document.querySelector('#file'),link=document.querySelector('#download'),report=document.querySelector('#report');
 let url=null,version=0;
@@ -86,7 +86,21 @@ input.onchange=async()=>{
     const result=convert(text);
     url=URL.createObjectURL(new Blob([result.csv],{type:'text/csv;charset=utf-8'}));
     link.href=url;link.hidden=false;
-    report.textContent=result.count+' producto(s) listos para importar.';
-  }catch(error){const message=document.createElement('pre');message.textContent=error.message;report.replaceChildren(message)}
+    report.textContent=result.count+' producto(s) listos para importar. Vista previa de '+result.preview.length+'.';
+    const table=document.createElement('table');
+    const header=table.createTHead().insertRow();
+    for(const name of ['Handle','Título','Precio']){
+      const th=document.createElement('th');th.textContent=name;header.append(th);
+    }
+    const body=table.createTBody();
+    for(const product of result.preview){
+      const row=body.insertRow();
+      for(const value of product)row.insertCell().textContent=value;
+    }
+    report.append(table);
+  }catch(error){const message=document.createElement('pre');message.textContent=error.message;report.replaceChildren(message);
+    const save=document.createElement('a');
+    url=URL.createObjectURL(new Blob([error.message],{type:'text/plain;charset=utf-8'}));
+    save.href=url;save.download='errores-catalogo.txt';save.textContent='Descargar informe de errores';report.append(save)}
 };
 </script></html>
