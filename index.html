@@ -1,0 +1,92 @@
+<!doctype html><html lang="es-AR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Validador Shopify</title><style>
+:root{color-scheme:light;--ink:#202827;--accent:#105e53;--line:#d5dcd7;--paper:#fff;--ground:#f6f7f4}
+*{box-sizing:border-box}body{margin:0;background:var(--ground);color:var(--ink);font:16px/1.5 Inter,system-ui,sans-serif}
+main{max-width:960px;margin:auto;padding:28px clamp(16px,4vw,44px) 64px}
+header,.actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}header{border-bottom:1px solid var(--line);padding-bottom:20px;margin-bottom:24px}
+.mark{display:grid;place-items:center;width:44px;height:44px;background:var(--accent);color:white;font-weight:800;border-radius:9px}
+h1,h2,h3{letter-spacing:-.035em;line-height:1.2}h1{margin:0;font-size:clamp(1.35rem,4vw,1.9rem)}header a{margin-left:auto}a{color:var(--accent);text-underline-offset:4px}
+form,.panel,article{border:1px solid var(--line);border-radius:14px;background:var(--paper);padding:clamp(18px,3vw,30px)}
+form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}form h2,form .actions{grid-column:1/-1}
+h2{font-size:1.22rem;margin:0 0 8px}h3{margin:0 0 8px}label{display:grid;gap:6px;font-size:.9rem;color:#475650;font-weight:600}
+input,select,button{max-width:100%;min-width:0;padding:10px 12px;border:1px solid #aab8b1;border-radius:7px;background:white;color:var(--ink);font:inherit;font-size:1rem}
+button{min-height:44px;cursor:pointer;font-weight:600}button:hover{background:#edf5f1}form button:first-of-type,.primary{background:var(--accent);color:white}
+:focus-visible{outline:3px solid #278779;outline-offset:2px}[hidden]{display:none!important}
+.toolbar{margin:30px 0 16px}.toolbar h2{margin-bottom:12px}article{margin:12px 0;overflow-wrap:anywhere}article p{white-space:pre-wrap}
+.amount{display:block;color:var(--accent);font-size:clamp(1.25rem,4vw,1.65rem);font-variant-numeric:tabular-nums;padding:12px 0;border-top:1px solid var(--line);margin-top:14px}article button{margin:6px 8px 0 0}#status:empty{display:none}
+@media(max-width:600px){form{grid-template-columns:1fr}header a{margin-left:0}}
+@page{size:A4;margin:16mm}
+@media print{body{background:white}main{max-width:none;padding:0}form,button,.toolbar,#empty,#status,header a,article:not(.print){display:none!important}article{border:0;padding:0}.mark{background:white;color:var(--ink);border:1px solid currentColor}}
+pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit}#report{margin:20px 0}.panel p{max-width:65ch}
+</style><main><header><h1>Validador Shopify</h1></header>
+<div class="panel"><h2>Revisar catálogo</h2><p>Elegí un CSV de productos simples con las columnas handle, titulo y precio. Usá coma entre columnas y punto decimal en el precio.</p>
+<label>Archivo CSV<input type="file" id="file" accept=".csv,text/csv"></label><p><a href="ejemplo.csv" download>Descargar plantilla de ejemplo</a></p>
+<div id="report" role="status"></div><a id="download" hidden download="catalogo-shopify.csv">Descargar CSV para Shopify</a></div></main>
+<script>
+'use strict';
+// Las comas y los saltos de línea dentro de comillas pertenecen al campo.
+function parseCsv(text){
+  const records=[];
+  let fields=[], field='', quoted=false,closed=false,line=1,start=1;
+  text=text.replace(/^\uFEFF/,'').replace(/\r\n?/g,'\n');
+  function endField(){fields.push(field);field='';closed=false}
+  function endRecord(){
+    endField();
+    if(fields.length>1||fields[0].trim())records.push({fields,line:start});
+    fields=[];start=line+1;
+  }
+  for(let i=0;i<text.length;i++){
+    const ch=text[i];
+    if(quoted){
+      if(ch==='"'){
+        if(text[i+1]==='"'){field+='"';i++}
+        else{quoted=false;closed=true}
+      }else{field+=ch;if(ch==='\n')line++}
+    }else if(ch===',')endField();
+    else if(ch==='\n'){endRecord();line++}
+    else if(ch==='"'&&!field&&!closed)quoted=true;
+    else if(closed||ch==='"')throw Error('Comillas inválidas en la línea '+line+'.');
+    else field+=ch;
+  }
+  if(quoted)throw Error('Faltan comillas de cierre en la fila '+start+'.');
+  endRecord();
+  return records;
+}
+function convert(text){
+  const [header,...rows]=parseCsv(text);
+  const names=header?.fields||[];
+  const indexes=['handle','titulo','precio'].map(name=>names.indexOf(name));
+  if(indexes.includes(-1))throw Error('Falta alguna columna requerida: handle, titulo, precio.');
+  if(new Set(names).size!==names.length)throw Error('Hay nombres de columna repetidos.');
+  if(!rows.length)throw Error('El catálogo está vacío.');
+  const seen=new Set(), errors=[],out=[['Handle','Title','Variant Price']];
+  for(const {fields,line} of rows){
+    const [handle,title,price]=indexes.map(i=>(fields[i]||'').trim());
+    const key=handle.toLowerCase();
+    const reasons=[];
+    if(!handle)reasons.push('falta el handle');
+    else if(seen.has(key))reasons.push('handle repetido');
+    if(!title)reasons.push('falta el título');
+    if(!/^\d+(\.\d+)?$/.test(price)||price.split('.')[0].replace(/^0+/,'').length>16)reasons.push('precio inválido');
+    if(fields.length>names.length)reasons.push('sobran columnas');
+    if(reasons.length){errors.push('Fila '+line+': '+reasons.join(', '));continue}
+    seen.add(key);out.push([handle,title,price]);
+  }
+  if(errors.length)throw Error(errors.join('\n'));
+  return {count:rows.length,csv:out.map(row=>row.map(value=>'"'+value.replaceAll('"','""')+'"').join(',')).join('\r\n')+'\r\n'};
+}
+const input=document.querySelector('#file'),link=document.querySelector('#download'),report=document.querySelector('#report');
+let url=null,version=0;
+input.onchange=async()=>{
+  const run=++version;
+  link.hidden=true;link.removeAttribute('href');if(url)URL.revokeObjectURL(url);
+  url=null;report.replaceChildren();
+  const file=input.files[0];if(!file)return;
+  try{
+    const text=await file.text();if(run!==version)return;
+    const result=convert(text);
+    url=URL.createObjectURL(new Blob([result.csv],{type:'text/csv;charset=utf-8'}));
+    link.href=url;link.hidden=false;
+    report.textContent=result.count+' producto(s) listos para importar.';
+  }catch(error){const message=document.createElement('pre');message.textContent=error.message;report.replaceChildren(message)}
+};
+</script></html>
